@@ -23,6 +23,10 @@
 #include <cmath>
 #include <sstream>
 #include <SDL_mixer.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <emscripten/html5.h>
+#endif
 #include "State.h"
 #include "Screen.h"
 #include "Sound.h"
@@ -45,6 +49,54 @@
 namespace OpenXcom
 {
 
+#ifdef __EMSCRIPTEN__
+/**
+ * Emscripten HTML5 mouse callback.
+ *
+ * The Emscripten SDL2 port does not reliably generate SDL mouse events
+ * when using the SDL 1.2 → SDL2 compatibility shim (SDL_SetVideoMode).
+ * Work around this by registering our own mouse callbacks via the
+ * Emscripten HTML5 API and pushing synthetic SDL events.
+ */
+/*
+ * Exported C functions called directly from JavaScript mouse event listeners.
+ * This is the most reliable approach: JS listeners on the canvas call these
+ * functions via Module._pushMouseMove / _pushMouseButton, which push
+ * synthetic SDL events into the queue.
+ */
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void pushMouseMove(int x, int y, int movX, int movY, int buttons)
+{
+	SDL_Event ev;
+	SDL_zero(ev);
+	ev.type = SDL_MOUSEMOTION;
+	ev.motion.x = x;
+	ev.motion.y = y;
+	ev.motion.xrel = movX;
+	ev.motion.yrel = movY;
+	ev.motion.state = buttons;
+	SDL_PushEvent(&ev);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void pushMouseButton(int down, int x, int y, int button)
+{
+	SDL_Event ev;
+	SDL_zero(ev);
+	ev.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+	ev.button.x = x;
+	ev.button.y = y;
+	ev.button.button = button;
+	ev.button.state = down ? SDL_PRESSED : SDL_RELEASED;
+	ev.button.clicks = 1;
+	SDL_PushEvent(&ev);
+}
+
+} /* extern "C" */
+#endif
+
 const double Game::VOLUME_GRADIENT = 10.0;
 
 /**
@@ -63,6 +115,44 @@ Game::Game(const std::string &title) : _screen(0), _cursor(0), _lang(0), _save(0
 		throw Exception(SDL_GetError());
 	}
 	Log(LOG_INFO) << "SDL initialized successfully.";
+
+#ifdef __EMSCRIPTEN__
+	/* Register mouse event listeners directly in JavaScript.
+	 * The Emscripten SDL2 port does not reliably forward browser mouse
+	 * events to the SDL event queue when using our SDL 1.2 compat shim.
+	 * We attach JS listeners on the canvas that call our exported C
+	 * functions (pushMouseMove / pushMouseButton) to inject SDL events. */
+	EM_ASM({
+		var canvas = document.getElementById('canvas');
+		if (!canvas) { console.error('WASM mouse: #canvas not found'); return; }
+
+		canvas.addEventListener('mousemove', function(e) {
+			var r = canvas.getBoundingClientRect();
+			var sx = canvas.width / r.width;
+			var sy = canvas.height / r.height;
+			var x = (e.clientX - r.left) * sx | 0;
+			var y = (e.clientY - r.top)  * sy | 0;
+			Module._pushMouseMove(x, y, e.movementX|0, e.movementY|0, e.buttons|0);
+		});
+		canvas.addEventListener('mousedown', function(e) {
+			var r = canvas.getBoundingClientRect();
+			var sx = canvas.width / r.width;
+			var sy = canvas.height / r.height;
+			var x = (e.clientX - r.left) * sx | 0;
+			var y = (e.clientY - r.top)  * sy | 0;
+			Module._pushMouseButton(1, x, y, e.button + 1);
+		});
+		canvas.addEventListener('mouseup', function(e) {
+			var r = canvas.getBoundingClientRect();
+			var sx = canvas.width / r.width;
+			var sy = canvas.height / r.height;
+			var x = (e.clientX - r.left) * sx | 0;
+			var y = (e.clientY - r.top)  * sy | 0;
+			Module._pushMouseButton(0, x, y, e.button + 1);
+		});
+		console.log('WASM mouse: JS listeners registered on canvas');
+	});
+#endif
 
 	// Initialize SDL_mixer
 	if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
@@ -361,6 +451,21 @@ void Game::run()
 			case SLOWED: case PAUSED:
 				SDL_Delay(100); break; //More slowing down.
 		}
+
+#ifdef __EMSCRIPTEN__
+		/* Periodically persist the IDBFS-backed filesystem to IndexedDB
+		 * so that saves, options, etc. survive browser refreshes.
+		 * Syncing every ~30 seconds avoids excessive I/O overhead. */
+		{
+			static Uint32 _lastIdbSync = 0;
+			Uint32 now = SDL_GetTicks();
+			if (now - _lastIdbSync > 30000)
+			{
+				_lastIdbSync = now;
+				EM_ASM( if (typeof Module.FS !== 'undefined') Module.FS.syncfs(false, function(e){ if(e) console.error('IDBFS sync error',e); }); );
+			}
+		}
+#endif
 	}
 
 	Options::save();
