@@ -46,7 +46,81 @@ endif ()
 set ( DEPS_DIR "${default_deps_dir}" CACHE STRING "Dependencies directory" )
 
 # Add check for library (SDL_gfx, yaml-cpp )
-if ( IS_DIRECTORY ${DEPS_DIR}/include )
+if ( EMSCRIPTEN )
+  # Emscripten provides SDL2 and friends via its ports system.
+  # Compile and link flags are set together so headers and libs are found automatically.
+  set ( EMSCRIPTEN_SDL_FLAGS "-sUSE_SDL=2 -sUSE_SDL_IMAGE=2 -sUSE_SDL_MIXER=2 -sUSE_SDL_GFX=2" )
+  set ( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${EMSCRIPTEN_SDL_FLAGS}" )
+  set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${EMSCRIPTEN_SDL_FLAGS}" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${EMSCRIPTEN_SDL_FLAGS}" )
+
+  # SDL library variables: empty because Emscripten links them via flags
+  set ( SDL_LIBRARY "" )
+  set ( SDLMIXER_LIBRARY "" )
+  set ( SDLGFX_LIBRARY "" )
+  set ( SDLIMAGE_LIBRARY "" )
+  message ( STATUS "Emscripten: using SDL2 ports (SDL2, SDL2_image, SDL2_mixer, SDL2_gfx)" )
+
+  # yaml-cpp: not available as an Emscripten port, build from source via FetchContent
+  include ( FetchContent )
+  FetchContent_Declare (
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG 0.8.0
+    GIT_SHALLOW ON
+    SYSTEM
+  )
+  # yaml-cpp 0.8.0's cmake_minimum_required is too old for modern CMake
+  set ( CMAKE_POLICY_VERSION_MINIMUM 3.5 )
+  set ( YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE )
+  set ( YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE )
+  set ( YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE )
+  FetchContent_MakeAvailable ( yaml-cpp )
+  set ( YAMLCPP_LIBRARY yaml-cpp::yaml-cpp )
+  set ( YAMLCPP_LIBRARY_DEBUG yaml-cpp::yaml-cpp )
+  set ( YAMLCPP_INCLUDE_DIR "${yaml-cpp_SOURCE_DIR}/include" )
+  include_directories ( SYSTEM ${YAMLCPP_INCLUDE_DIR} )
+  message ( STATUS "Emscripten: building yaml-cpp from source (0.8.0)" )
+
+  # Enable C++ exceptions (OpenXcom uses try/catch extensively)
+  set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fexceptions" )
+
+  # Preload OpenXcom's own data (common/ + standard/) into a system path.
+  # /usr/share/openxcom/ is one of the global search paths in findDataFolders().
+  # The user data path (/home/web_user/.local/share/openxcom/) is kept free
+  # for IDBFS-backed persistent storage (uploaded UFO data + saves).
+  set ( WASM_SYSDATA "/usr/share/openxcom" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${CMAKE_SOURCE_DIR}/bin/common@${WASM_SYSDATA}/common" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${CMAKE_SOURCE_DIR}/bin/standard@${WASM_SYSDATA}/standard" )
+
+  # Optional: preload proprietary UFO game data (for development/testing).
+  # Production builds should NOT set this — the upload UI handles it.
+  set ( UFO_DATA_DIR "" CACHE PATH "Path to UFO game data directory for WASM preloading" )
+  if ( NOT "${UFO_DATA_DIR}" STREQUAL "" )
+    message ( STATUS "Emscripten: preloading UFO data from ${UFO_DATA_DIR}" )
+    set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${UFO_DATA_DIR}@${WASM_SYSDATA}/UFO" )
+  endif ()
+
+  # Increase initial memory (code + data files need ~68MB at startup)
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sINITIAL_MEMORY=134217728" )
+
+  # Link IDBFS for persistent browser storage (game data uploads + saves)
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lidbfs.js" )
+
+  # Allow JS to delay main() until data is ready (noInitialRun + callMain)
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sINVOKE_RUN=0" )
+
+  # ASYNCIFY: allow the blocking C/C++ main loop to yield to the browser
+  # event loop so that SDL_Delay, rendering, and input processing all work.
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sASYNCIFY" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sASYNCIFY_STACK_SIZE=65536" )
+
+  # Export mouse-input bridge functions so JS can call them
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sEXPORTED_FUNCTIONS=_main,_pushMouseMove,_pushMouseButton" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sEXPORTED_RUNTIME_METHODS=ccall,callMain,FS" )
+
+elseif ( IS_DIRECTORY ${DEPS_DIR}/include )
    include_directories ( SYSTEM ${DEPS_DIR}/include/SDL ${DEPS_DIR}/include/yaml-cpp ${DEPS_DIR}/include )
    if ( CMAKE_CL_64 )
      link_directories ( ${DEPS_DIR}/lib/x64 )
@@ -214,7 +288,7 @@ endif()
 
 # Emscripten/WASM: add link flags and skip packaging
 if ( EMSCRIPTEN )
-  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sUSE_SDL=2 -sALLOW_MEMORY_GROWTH=1 -sMODULARIZE=1 -sEXPORT_NAME=OpenXcomModule" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sALLOW_MEMORY_GROWTH=1" )
   set ( BUILD_PACKAGE OFF CACHE BOOL "WASM build" FORCE )
   message ( STATUS "Emscripten build: WASM link flags added" )
 endif ()

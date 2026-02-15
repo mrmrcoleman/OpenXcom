@@ -495,10 +495,9 @@ endif ()
 
 target_link_libraries ( openxcom ${system_libs} ${SDLIMAGE_LIBRARY} ${SDLMIXER_LIBRARY} ${SDLGFX_LIBRARY} ${SDL_LIBRARY} ${OPENGL_LIBRARIES} ${EXTRA_XCOM_LIBS} debug ${YAMLCPP_LIBRARY_DEBUG} optimized ${YAMLCPP_LIBRARY} )
 
-# Emscripten: produce .html shell for browser
-if ( EMSCRIPTEN )
-  target_link_options ( openxcom PRIVATE "-o openxcom.html" )
-endif ()
+# Emscripten: we use a custom HTML shell (openXcomWASM/web/index.html),
+# so we do NOT pass -o openxcom.html here.  Emscripten will produce
+# openxcom.js + openxcom.wasm + openxcom.data (from --preload-file).
 
 # Pack libraries into bundle and link executable appropriately
 if ( APPLE AND CREATE_BUNDLE )
@@ -506,21 +505,24 @@ if ( APPLE AND CREATE_BUNDLE )
   postprocess_bundle ( openxcom ${bundle_path} )
 endif ()
 
-set ( bin_data_dirs TFTD UFO common standard )
-foreach ( binpath ${bin_data_dirs} )
-  if ( APPLE AND CREATE_BUNDLE )
-    add_custom_command ( TARGET openxcom
-      POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/${binpath} ${bundle_path}/Contents/Resources/${binpath}
-	  VERBATIM )
-  else ()
-    add_custom_command ( TARGET openxcom
-      POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/${binpath} ${EXECUTABLE_OUTPUT_PATH}/${binpath}
-	  VERBATIM )
-  endif ()
-  install ( DIRECTORY ${CMAKE_SOURCE_DIR}/bin/${binpath} DESTINATION ${data_install_dir} )
-endforeach()
+# Emscripten embeds data via --preload-file; skip the copy for WASM builds.
+if ( NOT EMSCRIPTEN )
+  set ( bin_data_dirs TFTD UFO common standard )
+  foreach ( binpath ${bin_data_dirs} )
+    if ( APPLE AND CREATE_BUNDLE )
+      add_custom_command ( TARGET openxcom
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/${binpath} ${bundle_path}/Contents/Resources/${binpath}
+	    VERBATIM )
+    else ()
+      add_custom_command ( TARGET openxcom
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/${binpath} ${EXECUTABLE_OUTPUT_PATH}/${binpath}
+	    VERBATIM )
+    endif ()
+    install ( DIRECTORY ${CMAKE_SOURCE_DIR}/bin/${binpath} DESTINATION ${data_install_dir} )
+  endforeach()
+endif ()
 
 # Copy Windows DLLs to bin folder
 if ( WIN32 )
