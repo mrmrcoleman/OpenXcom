@@ -117,6 +117,11 @@ bool FlcPlayer::init(const char *filename, void(*frameCallBack)(), Game *game, b
 	_frameCount = 0;
 	_audioFrameData = 0;
 	_hasAudio = false;
+
+	// SDL2's SDL_Color has an alpha field (SDL1's was 'unused' and ignored).
+	// FLC palette chunks only carry RGB, so pre-fill alpha to fully opaque.
+	for (int i = 0; i < 256; ++i)
+		_colors[i].a = 255;
 	_audioData.loadingBuffer = 0;
 	_audioData.playingBuffer = 0;
 
@@ -525,6 +530,7 @@ void FlcPlayer::color256()
 			_colors[i].r = *(pSrc++);
 			_colors[i].g = *(pSrc++);
 			_colors[i].b = *(pSrc++);
+			_colors[i].a = 255;
 		}
 
 		if (_mainScreen != _realScreen->getSurface()->getSurface())
@@ -740,6 +746,7 @@ void FlcPlayer::color64()
 			_colors[i].r = *(pSrc++) << 2;
 			_colors[i].g = *(pSrc++) << 2;
 			_colors[i].b = *(pSrc++) << 2;
+			_colors[i].a = 255;
 		}
 
 		if (_mainScreen != _realScreen->getSurface()->getSurface())
