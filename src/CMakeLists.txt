@@ -495,6 +495,11 @@ endif ()
 
 target_link_libraries ( openxcom ${system_libs} ${SDLIMAGE_LIBRARY} ${SDLMIXER_LIBRARY} ${SDLGFX_LIBRARY} ${SDL_LIBRARY} ${OPENGL_LIBRARIES} ${EXTRA_XCOM_LIBS} debug ${YAMLCPP_LIBRARY_DEBUG} optimized ${YAMLCPP_LIBRARY} )
 
+# Emscripten: produce .html shell for browser
+if ( EMSCRIPTEN )
+  target_link_options ( openxcom PRIVATE "-o openxcom.html" )
+endif ()
+
 # Pack libraries into bundle and link executable appropriately
 if ( APPLE AND CREATE_BUNDLE )
   include ( PostprocessBundle )

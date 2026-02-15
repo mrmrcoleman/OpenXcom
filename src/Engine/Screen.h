@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <SDL.h>
+#include "SDL2_compat.h"
 #include <string>
 #include "OpenGL.h"
 

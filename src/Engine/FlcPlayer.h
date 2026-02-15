@@ -23,6 +23,7 @@
  * Based on http://www.libsdl.org/projects/flxplay/
  */
 #include <SDL.h>
+#include "SDL2_compat.h"
 
 namespace OpenXcom
 {

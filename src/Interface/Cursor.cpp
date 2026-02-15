@@ -79,6 +79,30 @@ Uint8 Cursor::getColor() const
 }
 
 /**
+ * Helper: draw a line on an 8-bit surface using raw setPixel.
+ * This avoids the SDL2_gfx lineColor bridge which creates (and clears)
+ * a temporary software renderer for every call, wiping previous draws.
+ */
+static void rawLine(Surface *s, int x1, int y1, int x2, int y2, Uint8 color)
+{
+	int dx = abs(x2 - x1);
+	int dy = abs(y2 - y1);
+	int sx = (x1 < x2) ? 1 : -1;
+	int sy = (y1 < y2) ? 1 : -1;
+	int err = dx - dy;
+
+	while (true)
+	{
+		s->setPixel(x1, y1, color);
+		if (x1 == x2 && y1 == y2)
+			break;
+		int e2 = 2 * err;
+		if (e2 > -dy) { err -= dy; x1 += sx; }
+		if (e2 <  dx) { err += dx; y1 += sy; }
+	}
+}
+
+/**
  * Draws a pointer-shaped cursor graphic.
  */
 void Cursor::draw()
@@ -90,8 +114,8 @@ void Cursor::draw()
 	lock();
 	for (int i = 0; i < 4; ++i)
 	{
-		drawLine(x1, y1, x1, y2, color);
-		drawLine(x1, y1, x2, getWidth() - 1, color);
+		rawLine(this, x1, y1, x1, y2, color);            /* vertical edge */
+		rawLine(this, x1, y1, x2, getWidth() - 1, color); /* diagonal edge */
 		x1++;
 		y1 += 2;
 		y2--;

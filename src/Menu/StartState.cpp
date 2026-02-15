@@ -112,7 +112,8 @@ StartState::~StartState()
 {
 	if (_thread != 0)
 	{
-		SDL_KillThread(_thread);
+		/* SDL2: SDL_KillThread removed; detach the thread instead */
+		SDL_DetachThread(_thread);
 	}
 	delete _font;
 	delete _timer;
@@ -136,7 +137,7 @@ void StartState::init()
 	}
 
 	// Load the game data in a separate thread
-	_thread = SDL_CreateThread(load, (void*)_game);
+	_thread = SDL_CreateThread(load, "oxc_loader", (void*)_game);
 	if (_thread == 0)
 	{
 		// If we can't create the thread, just load it as usual

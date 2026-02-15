@@ -78,12 +78,17 @@
 FIND_PATH(SDL_INCLUDE_DIR SDL.h
   HINTS
   $ENV{SDLDIR}
-  PATH_SUFFIXES include/SDL include SDL
+  $ENV{SDL2DIR}
+  PATH_SUFFIXES include/SDL2 include/SDL include SDL2 SDL
   PATHS
   ~/Library/Frameworks
   /Library/Frameworks
+  /opt/homebrew/include
+  /opt/homebrew
+  /usr/local/include/SDL2
   /usr/local/include/SDL12
   /usr/local/include/SDL11 # FreeBSD ports
+  /usr/include/SDL2
   /usr/include/SDL12
   /usr/include/SDL11
   /sw # Fink
@@ -96,11 +101,14 @@ FIND_PATH(SDL_INCLUDE_DIR SDL.h
 # SDL-1.1 is the name used by FreeBSD ports...
 # don't confuse it for the version number.
 FIND_LIBRARY(SDL_LIBRARY_TEMP
-  NAMES SDL SDL-1.1
+  NAMES SDL2 SDL SDL-1.1
   HINTS
   $ENV{SDLDIR}
+  $ENV{SDL2DIR}
   PATH_SUFFIXES lib64 lib
   PATHS
+  /opt/homebrew/lib
+  /opt/homebrew
   /sw
   /opt/local
   /opt/csw
@@ -116,11 +124,14 @@ IF(NOT SDL_BUILDING_LIBRARY)
     # seem to provide SDLmain for compatibility even though they don't
     # necessarily need it.
     FIND_LIBRARY(SDLMAIN_LIBRARY
-      NAMES SDLmain SDLmain-1.1
+      NAMES SDL2main SDLmain SDLmain-1.1
       HINTS
       $ENV{SDLDIR}
+      $ENV{SDL2DIR}
       PATH_SUFFIXES lib64 lib
       PATHS
+      /opt/homebrew/lib
+      /opt/homebrew
       /sw
       /opt/local
       /opt/csw
@@ -209,9 +220,10 @@ macro ( FindSDL_component _component )
   set ( SDL_header_name SDL_${_component}.h )
   set ( SDL_COMPONENT_NAME ${UPPERCOMPONENT} )
 
-  #Special case for SDL_gfx. This seems to be the only library where the main header is not SDL_${lib}.h.
+  #Special case for SDL_gfx / SDL2_gfx. The main header is SDL2_gfxPrimitives.h (SDL2) or SDL_gfxPrimitives.h (SDL1).
   if ( ${UPPERCOMPONENT} STREQUAL "GFX" )
-    set ( SDL_header_name SDL_gfxPrimitives.h )
+    set ( SDL_header_name SDL2_gfxPrimitives.h )
+    set ( SDL_header_name_fallback SDL_gfxPrimitives.h )
     set ( SDL_COMPONENT_NAME GFXPRIMITIVES )
   endif ()
 
@@ -219,12 +231,17 @@ macro ( FindSDL_component _component )
     HINTS
     $ENV{SDL${UPPERCOMPONENT}DIR}
     $ENV{SDLDIR}
-    PATH_SUFFIXES include/SDL include SDL
+    $ENV{SDL2DIR}
+    PATH_SUFFIXES include/SDL2 include/SDL include SDL2 SDL
     PATHS
     ~/Library/Frameworks
     /Library/Frameworks
+    /opt/homebrew/include
+    /opt/homebrew
+    /usr/local/include/SDL2
     /usr/local/include/SDL12
     /usr/local/include/SDL11 # FreeBSD ports
+    /usr/include/SDL2
     /usr/include/SDL12
     /usr/include/SDL11
     /sw # Fink
@@ -232,13 +249,24 @@ macro ( FindSDL_component _component )
     /opt/csw # Blastwave
     /opt
     )
+  # Fallback for GFX: try the old header name
+  if ( NOT SDL${UPPERCOMPONENT}_INCLUDE_DIR AND DEFINED SDL_header_name_fallback )
+    find_path ( SDL${UPPERCOMPONENT}_INCLUDE_DIR ${SDL_header_name_fallback}
+      HINTS $ENV{SDL${UPPERCOMPONENT}DIR} $ENV{SDLDIR} $ENV{SDL2DIR}
+      PATH_SUFFIXES include/SDL2 include/SDL include SDL2 SDL
+      PATHS /opt/homebrew/include /opt/homebrew ~/Library/Frameworks /Library/Frameworks /usr/local/include/SDL2 /sw /opt/local /opt/csw /opt
+      )
+  endif ()
   find_library ( SDL${UPPERCOMPONENT}_LIBRARY
-    NAMES SDL_${_component}
+    NAMES SDL2_${_component} SDL_${_component}
     HINTS
     $ENV{SDL${UPPERCOMPONENT}DIR}
     $ENV{SDLDIR}
+    $ENV{SDL2DIR}
     PATH_SUFFIXES lib64 lib
     PATHS
+    /opt/homebrew/lib
+    /opt/homebrew
     /sw
     /opt/local
     /opt/csw

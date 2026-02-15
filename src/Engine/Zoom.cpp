@@ -683,7 +683,25 @@ void Zoom::flipWithZoom(SDL_Surface *src, SDL_Surface *dst, int topBlackBand, in
 	}
 	else if (topBlackBand <= 0 && bottomBlackBand <= 0 && leftBlackBand <= 0 && rightBlackBand <= 0)
 	{
-		_zoomSurfaceY(src, dst, 0, 0);
+		if (src->format->BitsPerPixel == 8 && dst->format->BitsPerPixel != 8)
+		{
+			/* src is 8-bit paletted but dst is 32-bit (SDL2 window surface).
+			 * _zoomSurfaceY copies raw bytes and doesn't do palette→RGB conversion,
+			 * so zoom into a matching-bpp temp surface first, then let SDL_BlitSurface
+			 * handle the palette conversion. */
+			SDL_Surface *tmp = SDL_CreateRGBSurface(0, dst->w, dst->h, 8, 0, 0, 0, 0);
+			if (src->format->palette != NULL && tmp->format->palette != NULL)
+			{
+				SDL_SetPaletteColors(tmp->format->palette, src->format->palette->colors, 0, src->format->palette->ncolors);
+			}
+			_zoomSurfaceY(src, tmp, 0, 0);
+			SDL_BlitSurface(tmp, NULL, dst, NULL);
+			SDL_FreeSurface(tmp);
+		}
+		else
+		{
+			_zoomSurfaceY(src, dst, 0, 0);
+		}
 	}
 	else if (dstWidth == src->w && dstHeight == src->h)
 	{
@@ -692,12 +710,14 @@ void Zoom::flipWithZoom(SDL_Surface *src, SDL_Surface *dst, int topBlackBand, in
 	}
 	else
 	{
-		SDL_Surface *tmp = SDL_CreateRGBSurface(dst->flags, dstWidth, dstHeight, dst->format->BitsPerPixel, 0, 0, 0, 0);
-		_zoomSurfaceY(src, tmp, 0, 0);
-		if (src->format->palette != NULL)
+		/* Create tmp surface matching source bpp (8-bit) for the zoom,
+		 * then blit to dst where SDL2 handles palette→RGB conversion. */
+		SDL_Surface *tmp = SDL_CreateRGBSurface(0, dstWidth, dstHeight, src->format->BitsPerPixel, 0, 0, 0, 0);
+		if (src->format->palette != NULL && tmp->format->palette != NULL)
 		{
-			SDL_SetPalette(tmp, SDL_LOGPAL|SDL_PHYSPAL, src->format->palette->colors, 0, src->format->palette->ncolors);
+			SDL_SetPaletteColors(tmp->format->palette, src->format->palette->colors, 0, src->format->palette->ncolors);
 		}
+		_zoomSurfaceY(src, tmp, 0, 0);
 		SDL_Rect dstrect = {(Sint16)leftBlackBand, (Sint16)topBlackBand, (Uint16)tmp->w, (Uint16)tmp->h};
 		SDL_BlitSurface(tmp, NULL, dst, &dstrect);
 		SDL_FreeSurface(tmp);

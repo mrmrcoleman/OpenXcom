@@ -532,7 +532,9 @@ void TextEdit::keyboardPress(Action *action, State *state)
 			}
 			break;
 		default:
-			UCode c = action->getDetails()->key.keysym.unicode;
+			/* SDL2: keysym.unicode is gone; use keysym.sym for ASCII-range characters.
+			 * Full text input should come from SDL_TEXTINPUT events (TODO). */
+			UCode c = (UCode)action->getDetails()->key.keysym.sym;
 			if (isValidChar(c) && !exceedsMaxWidth(c))
 			{
 				_value.insert(_caretPos, 1, c);

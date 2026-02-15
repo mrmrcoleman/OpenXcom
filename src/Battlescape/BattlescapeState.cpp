@@ -19,7 +19,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
-#include <SDL_gfxPrimitives.h>
+#include <SDL2_gfxPrimitives.h>
 #include "Map.h"
 #include "Camera.h"
 #include "BattlescapeState.h"

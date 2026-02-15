@@ -337,10 +337,9 @@ void Screen::resetDisplay(bool resetVideo)
 			std::string title(_oldtitle);
 			SDL_QuitSubSystem(SDL_INIT_VIDEO);
 			SDL_InitSubSystem(SDL_INIT_VIDEO);
-			SDL_ShowCursor(SDL_ENABLE);
+			SDL_ShowCursor(SDL_DISABLE);
 			SDL_EnableUNICODE(1);
 			SDL_WM_SetCaption(title.c_str(), 0);
-			SDL_SetCursor(SDL_CreateCursor(&cursor, &cursor, 1,1,0,0));
 		}
 #endif
 		Log(LOG_INFO) << "Attempting to set display to " << width << "x" << height << "x" << _bpp << "...";

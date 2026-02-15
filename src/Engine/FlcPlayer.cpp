@@ -248,11 +248,11 @@ void FlcPlayer::SDLPolling()
 		case SDL_KEYDOWN:
 			_playingState = SKIPPED;
 			break;
-		case SDL_VIDEORESIZE:
-			if (Options::allowResize)
-			{
-				Options::newDisplayWidth = Options::displayWidth = std::max(Screen::ORIGINAL_WIDTH, event.resize.w);
-				Options::newDisplayHeight = Options::displayHeight = std::max(Screen::ORIGINAL_HEIGHT, event.resize.h);
+	case SDL_WINDOWEVENT:
+		if (Options::allowResize && event.window.event == SDL_WINDOWEVENT_RESIZED)
+		{
+			Options::newDisplayWidth = Options::displayWidth = std::max(Screen::ORIGINAL_WIDTH, (int)event.window.data1);
+			Options::newDisplayHeight = Options::displayHeight = std::max(Screen::ORIGINAL_HEIGHT, (int)event.window.data2);
 				if (_mainScreen != _realScreen->getSurface()->getSurface())
 				{
 					_realScreen->resetDisplay();

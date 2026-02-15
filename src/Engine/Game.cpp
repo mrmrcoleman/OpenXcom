@@ -17,6 +17,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "Game.h"
+#include "SDL2_compat.h"
 #include "../resource.h"
 #include <algorithm>
 #include <cmath>
@@ -94,10 +95,8 @@ Game::Game(const std::string &title) : _screen(0), _cursor(0), _lang(0), _save(0
 	// Create cursor
 	_cursor = new Cursor(9, 13);
 	
-	// Create invisible hardware cursor to workaround bug with absolute positioning pointing devices
-	SDL_ShowCursor(SDL_ENABLE);
-	Uint8 cursor = 0;
-	SDL_SetCursor(SDL_CreateCursor(&cursor, &cursor, 1,1,0,0));
+	// Hide the system cursor — the game draws its own cursor in the game buffer
+	SDL_ShowCursor(SDL_DISABLE);
 
 	// Create fps counter
 	_fpsCounter = new FpsCounter(15, 5, 0, 0);
@@ -186,47 +185,38 @@ void Game::run()
 				case SDL_QUIT:
 					quit();
 					break;
-				case SDL_ACTIVEEVENT:
-					// An event other than SDL_APPMOUSEFOCUS change happened.
-					if (reinterpret_cast<SDL_ActiveEvent*>(&_event)->state & ~SDL_APPMOUSEFOCUS)
+			case SDL_WINDOWEVENT:
+				switch (_event.window.event)
+				{
+				case SDL_WINDOWEVENT_MINIMIZED:
+					runningState = stateRun[Options::pauseMode];
+					if (Options::backgroundMute)
 					{
-						Uint8 currentState = SDL_GetAppState();
-						// Game is minimized
-						if (!(currentState & SDL_APPACTIVE))
-						{
-							runningState = stateRun[Options::pauseMode];
-							if (Options::backgroundMute)
-							{
-								setVolume(0, 0, 0);
-							}
-						}
-						// Game is not minimized but has no keyboard focus.
-						else if (!(currentState & SDL_APPINPUTFOCUS))
-						{
-							runningState = kbFocusRun[Options::pauseMode];
-							if (Options::backgroundMute)
-							{
-								setVolume(0, 0, 0);
-							}
-						}
-						// Game has keyboard focus.
-						else
-						{
-							runningState = RUNNING;
-							if (Options::backgroundMute)
-							{
-								setVolume(Options::soundVolume, Options::musicVolume, Options::uiVolume);
-							}
-						}
+						setVolume(0, 0, 0);
 					}
 					break;
-				case SDL_VIDEORESIZE:
+				case SDL_WINDOWEVENT_FOCUS_LOST:
+					runningState = kbFocusRun[Options::pauseMode];
+					if (Options::backgroundMute)
+					{
+						setVolume(0, 0, 0);
+					}
+					break;
+				case SDL_WINDOWEVENT_RESTORED:
+				case SDL_WINDOWEVENT_FOCUS_GAINED:
+					runningState = RUNNING;
+					if (Options::backgroundMute)
+					{
+						setVolume(Options::soundVolume, Options::musicVolume, Options::uiVolume);
+					}
+					break;
+				case SDL_WINDOWEVENT_RESIZED:
 					if (Options::allowResize)
 					{
 						if (!startupEvent)
 						{
-							Options::newDisplayWidth = Options::displayWidth = std::max(Screen::ORIGINAL_WIDTH, _event.resize.w);
-							Options::newDisplayHeight = Options::displayHeight = std::max(Screen::ORIGINAL_HEIGHT, _event.resize.h);
+							Options::newDisplayWidth = Options::displayWidth = std::max(Screen::ORIGINAL_WIDTH, (int)_event.window.data1);
+							Options::newDisplayHeight = Options::displayHeight = std::max(Screen::ORIGINAL_HEIGHT, (int)_event.window.data2);
 							int dX = 0, dY = 0;
 							Screen::updateScale(Options::battlescapeScale, Options::baseXBattlescape, Options::baseYBattlescape, false);
 							Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, false);
@@ -242,13 +232,43 @@ void Game::run()
 						}
 					}
 					break;
-				case SDL_MOUSEMOTION:
+				default:
+					break;
+				} /* end inner SDL_WINDOWEVENT switch */
+				break;
+			case SDL_MOUSEWHEEL:
+				{
+					/* SDL2 fires SDL_MOUSEWHEEL instead of button 4/5.
+					 * Synthesize SDL_MOUSEBUTTONDOWN events so all the
+					 * existing SDL_BUTTON_WHEELUP / WHEELDOWN handlers work. */
+					SDL_Event synthDown;
+					SDL_zero(synthDown);
+					synthDown.type = SDL_MOUSEBUTTONDOWN;
+					synthDown.button.button = (_event.wheel.y > 0) ? SDL_BUTTON_WHEELUP : SDL_BUTTON_WHEELDOWN;
+					{
+						int mx, my;
+						SDL_GetMouseState(&mx, &my);
+						synthDown.button.x = mx;
+						synthDown.button.y = my;
+					}
+					synthDown.button.clicks = 1;
+					synthDown.button.state = SDL_PRESSED;
+					/* Push the synthetic event; it will be picked up on the
+					 * next iteration of the PollEvent loop. */
+					int repeats = std::max(1, std::abs(_event.wheel.y));
+					for (int wr = 0; wr < repeats; ++wr)
+						SDL_PushEvent(&synthDown);
+					continue;   /* skip default handling for the raw wheel event */
+				}
+			case SDL_MOUSEMOTION:
 				case SDL_MOUSEBUTTONDOWN:
 				case SDL_MOUSEBUTTONUP:
 					// Skip mouse events if they're disabled
 					if (!_mouseActive) continue;
 					// re-gain focus on mouse-over or keypress.
 					runningState = RUNNING;
+					
+					
 					// Go on, feed the event to others
 				default:
 					Action action = Action(&_event, _screen->getXScale(), _screen->getYScale(), _screen->getCursorTopBlackBand(), _screen->getCursorLeftBlackBand());
@@ -297,7 +317,10 @@ void Game::run()
 			if (Options::FPS > 0 && !(Options::useOpenGL && Options::vSyncForOpenGL))
 			{
 				// Update our FPS delay time based on the time of the last draw.
-				int fps = SDL_GetAppState() & SDL_APPINPUTFOCUS ? Options::FPS : Options::FPSInactive;
+				/* SDL2: check keyboard focus via window flags */
+			SDL_Window *_focusWin = SDL2Compat::getWindow();
+			Uint32 _winFlags = _focusWin ? SDL_GetWindowFlags(_focusWin) : 0;
+			int fps = (_winFlags & SDL_WINDOW_INPUT_FOCUS) ? Options::FPS : Options::FPSInactive;
 
 				_timeUntilNextFrame = (1000.0f / fps) - (SDL_GetTicks() - _timeOfLastFrame);
 			}

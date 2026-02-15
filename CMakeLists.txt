@@ -38,11 +38,9 @@ if ( WIN32 )
 endif ()
 
 if ( APPLE )
-  set ( MACOS_SDLMAIN_M_PATH "${CMAKE_SOURCE_DIR}/src/apple/SDLMain.m" CACHE STRING "Path to SDLMain.m file" )
+  # SDL2 handles its own entry point; the SDL 1.2 SDLMain.m is not needed.
+  # set ( MACOS_SDLMAIN_M_PATH "${CMAKE_SOURCE_DIR}/src/apple/SDLMain.m" CACHE STRING "Path to SDLMain.m file" )
   option ( CREATE_BUNDLE "Create a Mac OS application bundle" ON )
-  if ( NOT EXISTS "${MACOS_SDLMAIN_M_PATH}" )
-    message ( FATAL_ERROR "On Mac OS, SDLMain.m is required. Please set the MACOS_SDLMAIN_M_PATH variable" )
-  endif ()
 endif ()
 
 set ( DEPS_DIR "${default_deps_dir}" CACHE STRING "Dependencies directory" )
@@ -104,16 +102,28 @@ else ( )
 endif()
 
 # Find OpenGL
-set (OpenGL_GL_PREFERENCE LEGACY)
-find_package ( OpenGL )
-if ( NOT OPENGL_FOUND )
-  message ( WARNING "Can't find OpenGL; how does that even happen?\n"
-    "Continuing building without OpenGL support."
-    )
-  add_definitions(-D__NO_OPENGL)
+if ( NOT EMSCRIPTEN )
+  set (OpenGL_GL_PREFERENCE LEGACY)
+  find_package ( OpenGL )
+  if ( NOT OPENGL_FOUND )
+    message ( WARNING "Can't find OpenGL; how does that even happen?\n"
+      "Continuing building without OpenGL support."
+      )
+    add_definitions(-D__NO_OPENGL)
+  else ()
+    # On macOS with SDL2, the shader-based OpenGL code needs GL3 functions
+    # which aren't exposed through SDL_opengl.h's legacy path.
+    # Disable OpenGL for now; software rendering works fine.
+    if ( APPLE )
+      message ( STATUS "macOS + SDL2: disabling OpenGL shaders (software rendering)" )
+      add_definitions(-D__NO_OPENGL)
+    else ()
+      include_directories ( SYSTEM ${OPENGL_INCLUDE_DIR} )
+      message ( "found openGL (${OPENGL_LIBRARIES})" )
+    endif ()
+  endif ()
 else ()
-    include_directories ( SYSTEM ${OPENGL_INCLUDE_DIR} )
-    message ( "found openGL (${OPENGL_LIBRARIES})" )
+  add_definitions(-D__NO_OPENGL)
 endif ()
 
 # Resolve backtraces
@@ -202,7 +212,14 @@ if ( BUILD_PACKAGE )
 )
 endif()
 
-if ( NOT WIN32 )
+# Emscripten/WASM: add link flags and skip packaging
+if ( EMSCRIPTEN )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sUSE_SDL=2 -sALLOW_MEMORY_GROWTH=1 -sMODULARIZE=1 -sEXPORT_NAME=OpenXcomModule" )
+  set ( BUILD_PACKAGE OFF CACHE BOOL "WASM build" FORCE )
+  message ( STATUS "Emscripten build: WASM link flags added" )
+endif ()
+
+if ( NOT WIN32 AND NOT EMSCRIPTEN )
   install(FILES "${CMAKE_SOURCE_DIR}/res/linux/openxcom.desktop"
     DESTINATION "${CMAKE_INSTALL_FULL_DATAROOTDIR}/applications")
   install(FILES "${CMAKE_SOURCE_DIR}/res/linux/icons/openxcom_48x48.png"
