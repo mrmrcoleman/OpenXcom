@@ -66,12 +66,19 @@
 #include <cstdio>
 #include <cstdlib>
 #include <unistd.h>
-#include <sys/param.h>
 #include <sys/types.h>
+#ifdef __EMSCRIPTEN__
+#include <climits>
+#ifndef MAXPATHLEN
+#define MAXPATHLEN PATH_MAX
+#endif
+#else
+#include <sys/param.h>
 #include <pwd.h>
 #include <execinfo.h>
 #include <cxxabi.h>
 #include <dlfcn.h>
+#endif
 #include "Unicode.h"
 #endif
 #include <SDL.h>
@@ -142,11 +149,15 @@ void showError(const std::string &error)
 static char const *getHome()
 {
 	char const *home = getenv("HOME");
+#ifdef __EMSCRIPTEN__
+	if (!home) home = "/home/web_user";
+#else
 	if (!home)
 	{
 		struct passwd *const pwd = getpwuid(getuid());
 		home = pwd->pw_dir;
 	}
+#endif
 	return home;
 }
 #endif
@@ -1125,7 +1136,7 @@ void stackTrace(void *ctx)
 #else
 	Log(LOG_FATAL) << "Unfortunately, no stack trace information is available";
 #endif
-#elif __CYGWIN__
+#elif __CYGWIN__ || __EMSCRIPTEN__
 	Log(LOG_FATAL) << "Unfortunately, no stack trace information is available";
 #else
 	void *frames[32];
