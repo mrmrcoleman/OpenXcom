@@ -102,8 +102,10 @@ if ( EMSCRIPTEN )
     set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${UFO_DATA_DIR}@${WASM_SYSDATA}/UFO" )
   endif ()
 
-  # Increase initial memory (code + data files need ~68MB at startup)
-  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sINITIAL_MEMORY=134217728" )
+  # Allocate 256 MB upfront. This is generous for a 1994 DOS game and avoids
+  # runtime memory growth, which detaches typed array views and crashes the
+  # ScriptProcessorNode audio callback (index out of bounds in onaudioprocess).
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sINITIAL_MEMORY=268435456" )
 
   # Link IDBFS for persistent browser storage (game data uploads + saves)
   set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lidbfs.js" )
@@ -288,7 +290,7 @@ endif()
 
 # Emscripten/WASM: add link flags and skip packaging
 if ( EMSCRIPTEN )
-  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sALLOW_MEMORY_GROWTH=1" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sALLOW_MEMORY_GROWTH=0" )
   set ( BUILD_PACKAGE OFF CACHE BOOL "WASM build" FORCE )
   message ( STATUS "Emscripten build: WASM link flags added" )
 endif ()
