@@ -119,7 +119,7 @@ if ( EMSCRIPTEN )
   set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sASYNCIFY_STACK_SIZE=65536" )
 
   # Export mouse-input bridge functions so JS can call them
-  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sEXPORTED_FUNCTIONS=_main,_pushMouseMove,_pushMouseButton" )
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sEXPORTED_FUNCTIONS=_main,_pushMouseMove,_pushMouseButton,_pushMouseWheel" )
   set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sEXPORTED_RUNTIME_METHODS=ccall,callMain,FS" )
 
 elseif ( IS_DIRECTORY ${DEPS_DIR}/include )
@@ -290,7 +290,10 @@ endif()
 
 # Emscripten/WASM: add link flags and skip packaging
 if ( EMSCRIPTEN )
-  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sALLOW_MEMORY_GROWTH=0" )
+  # Keep growth enabled as a safety net (some Emscripten/SDL internals assume
+  # it). With 256 MB initial memory, growth should never actually trigger,
+  # which avoids the typed-array-detach audio crash.
+  set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sALLOW_MEMORY_GROWTH=1" )
   set ( BUILD_PACKAGE OFF CACHE BOOL "WASM build" FORCE )
   message ( STATUS "Emscripten build: WASM link flags added" )
 endif ()

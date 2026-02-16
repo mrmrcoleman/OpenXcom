@@ -64,7 +64,15 @@ namespace OpenXcom
  * functions via Module._pushMouseMove / _pushMouseButton, which push
  * synthetic SDL events into the queue.
  */
+/* Button mask tracked by pushMouseButton so that OX_GetMouseButtonState()
+ * (see EmMouseState.h) returns the correct state. SDL_GetMouseState()
+ * does NOT reflect synthetic events pushed via SDL_PushEvent. */
+static unsigned int s_emMouseButtons = 0;
+
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+unsigned int emGetMouseButtons() { return s_emMouseButtons; }
 
 EMSCRIPTEN_KEEPALIVE
 void pushMouseMove(int x, int y, int movX, int movY, int buttons)
@@ -83,6 +91,14 @@ void pushMouseMove(int x, int y, int movX, int movY, int buttons)
 EMSCRIPTEN_KEEPALIVE
 void pushMouseButton(int down, int x, int y, int button)
 {
+	/* Update our own button mask (SDL_BUTTON(n) = 1 << (n-1)). */
+	if (button >= 1 && button <= 5)
+	{
+		unsigned int bit = 1u << (button - 1);
+		if (down) s_emMouseButtons |= bit;
+		else      s_emMouseButtons &= ~bit;
+	}
+
 	SDL_Event ev;
 	SDL_zero(ev);
 	ev.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
@@ -91,6 +107,18 @@ void pushMouseButton(int down, int x, int y, int button)
 	ev.button.button = button;
 	ev.button.state = down ? SDL_PRESSED : SDL_RELEASED;
 	ev.button.clicks = 1;
+	SDL_PushEvent(&ev);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void pushMouseWheel(int x, int y, int deltaX, int deltaY)
+{
+	SDL_Event ev;
+	SDL_zero(ev);
+	ev.type = SDL_MOUSEWHEEL;
+	ev.wheel.x = deltaX;
+	ev.wheel.y = deltaY;
+	ev.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
 	SDL_PushEvent(&ev);
 }
 
@@ -150,6 +178,59 @@ Game::Game(const std::string &title) : _screen(0), _cursor(0), _lang(0), _save(0
 			var y = (e.clientY - r.top)  * sy | 0;
 			Module._pushMouseButton(0, x, y, e.button + 1);
 		});
+		/* Trackpad / Magic Mouse scroll → drag-scroll state */
+		var _scrollDragging = false;
+		var _scrollTimer = null;
+		var _scrollLastX = 0;
+		var _scrollLastY = 0;
+
+		canvas.addEventListener('wheel', function(e) {
+			e.preventDefault();
+			var r = canvas.getBoundingClientRect();
+			var sx = canvas.width / r.width;
+			var sy = canvas.height / r.height;
+			var x = (e.clientX - r.left) * sx | 0;
+			var y = (e.clientY - r.top)  * sy | 0;
+
+			/* Pinch-to-zoom on trackpad (Chrome/Safari set ctrlKey
+			   for trackpad pinch gestures) → zoom / level change. */
+			if (e.ctrlKey) {
+				var dy = e.deltaY < 0 ? -1 : 1;
+				Module._pushMouseWheel(x, y, 0, dy);
+				return;
+			}
+
+			/* Physical mouse wheel detection:
+			   - Firefox uses deltaMode=1 (lines) for a real mouse wheel.
+			   - Chrome/Safari use deltaMode=0 (pixels) but report ~100px
+			     per wheel notch, whereas trackpad events are 1-30px.
+			   A threshold of 50 cleanly separates the two. */
+			var dominated = Math.abs(e.deltaY) > Math.abs(e.deltaX);
+			if (e.deltaMode !== 0 ||
+				(dominated && Math.abs(e.deltaY) >= 50 && Math.abs(e.deltaX) < 5)) {
+				var dy = e.deltaY < 0 ? -1 : 1;
+				Module._pushMouseWheel(x, y, 0, dy);
+				return;
+			}
+
+			/* Trackpad / Magic Mouse finger stroke (any direction) →
+			   simulate right-click drag so the existing drag-scroll
+			   infrastructure rotates the globe / pans the map. */
+			var moveX = Math.round(-e.deltaX * sx * 0.5);
+			var moveY = Math.round(-e.deltaY * sy * 0.5);
+			if (!_scrollDragging) {
+				_scrollDragging = true;
+				_scrollLastX = x;
+				_scrollLastY = y;
+				Module._pushMouseButton(1, x, y, 3);
+			}
+			Module._pushMouseMove(x, y, moveX, moveY, 4);
+			clearTimeout(_scrollTimer);
+			_scrollTimer = setTimeout(function() {
+				_scrollDragging = false;
+				Module._pushMouseButton(0, _scrollLastX, _scrollLastY, 3);
+			}, 120);
+		}, { passive: false });
 		console.log('WASM mouse: JS listeners registered on canvas');
 	});
 #endif
@@ -329,25 +410,38 @@ void Game::run()
 			case SDL_MOUSEWHEEL:
 				{
 					/* SDL2 fires SDL_MOUSEWHEEL instead of button 4/5.
-					 * Synthesize SDL_MOUSEBUTTONDOWN events so all the
-					 * existing SDL_BUTTON_WHEELUP / WHEELDOWN handlers work. */
-					SDL_Event synthDown;
-					SDL_zero(synthDown);
-					synthDown.type = SDL_MOUSEBUTTONDOWN;
-					synthDown.button.button = (_event.wheel.y > 0) ? SDL_BUTTON_WHEELUP : SDL_BUTTON_WHEELDOWN;
-					{
-						int mx, my;
-						SDL_GetMouseState(&mx, &my);
-						synthDown.button.x = mx;
-						synthDown.button.y = my;
-					}
-					synthDown.button.clicks = 1;
-					synthDown.button.state = SDL_PRESSED;
-					/* Push the synthetic event; it will be picked up on the
-					 * next iteration of the PollEvent loop. */
+					 * Synthesize SDL_MOUSEBUTTONDOWN + UP events so all the
+					 * existing SDL_BUTTON_WHEELUP / WHEELDOWN handlers work.
+					 * We must send both DOWN and UP: InteractiveSurface marks
+					 * the button as "pressed" on DOWN and blocks further events
+					 * until an UP clears it. */
+					if (_event.wheel.y == 0) { continue; }
+					Uint8 btn = (_event.wheel.y > 0) ? SDL_BUTTON_WHEELUP : SDL_BUTTON_WHEELDOWN;
+					int mx = 0, my = 0;
+					SDL_GetMouseState(&mx, &my);
 					int repeats = std::max(1, std::abs(_event.wheel.y));
 					for (int wr = 0; wr < repeats; ++wr)
+					{
+						SDL_Event synthDown;
+						SDL_zero(synthDown);
+						synthDown.type = SDL_MOUSEBUTTONDOWN;
+						synthDown.button.button = btn;
+						synthDown.button.x = mx;
+						synthDown.button.y = my;
+						synthDown.button.clicks = 1;
+						synthDown.button.state = SDL_PRESSED;
 						SDL_PushEvent(&synthDown);
+
+						SDL_Event synthUp;
+						SDL_zero(synthUp);
+						synthUp.type = SDL_MOUSEBUTTONUP;
+						synthUp.button.button = btn;
+						synthUp.button.x = mx;
+						synthUp.button.y = my;
+						synthUp.button.clicks = 1;
+						synthUp.button.state = SDL_RELEASED;
+						SDL_PushEvent(&synthUp);
+					}
 					continue;   /* skip default handling for the raw wheel event */
 				}
 			case SDL_MOUSEMOTION:
