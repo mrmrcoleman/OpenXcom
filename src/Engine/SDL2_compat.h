@@ -145,12 +145,18 @@ static inline int SDL_EnableKeyRepeat(int /*delay*/, int /*interval*/) { return 
 /* SDL_EnableUNICODE: gone in SDL2, text input events replace it */
 static inline int SDL_EnableUNICODE(int /*enable*/) { return 0; }
 
-/* SDL_WarpMouse → SDL_WarpMouseInWindow */
+/* SDL_WarpMouse → SDL_WarpMouseInWindow (no-op in Emscripten: warping doesn't move the
+ * browser cursor and would make SDL's internal position wrong, triggering edge-scroll). */
 static inline void SDL_WarpMouse(Uint16 x, Uint16 y)
 {
+#ifdef __EMSCRIPTEN__
+    (void)x;
+    (void)y;
+#else
     SDL_Window *win = SDL2Compat::getWindow();
     if (!win) win = SDL_GetKeyboardFocus();
     if (win) SDL_WarpMouseInWindow(win, x, y);
+#endif
 }
 
 /* SDL_putenv: gone in SDL2, use SDL_setenv */
