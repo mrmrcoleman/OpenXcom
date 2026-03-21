@@ -31,6 +31,7 @@
 #include "Logger.h"
 #include "ShaderMove.h"
 #include "Unicode.h"
+#include <cmath>
 #include <stdlib.h>
 #ifdef _WIN32
 #include <malloc.h>
@@ -754,6 +755,33 @@ void Surface::drawLine(Sint16 x1, Sint16 y1, Sint16 x2, Sint16 y2, Uint8 color)
  */
 void Surface::drawCircle(Sint16 x, Sint16 y, Sint16 r, Uint8 color)
 {
+	/* SDL2_gfx via SDL2_compat uses the software renderer, which maps RGBA fills
+	   onto palettized surfaces. That lookup can pick palette index 0 for colours
+	   that are very dark (e.g. deep ocean blue). Index 0 is the surface colour key
+	   (transparent), so the geoscape ocean would show the starfield through it.
+	   Writing the intended palette index with SDL_FillRect avoids that. */
+	if (_surface->format->BitsPerPixel == 8)
+	{
+		const int rad = (int)r;
+		const int r2 = rad * rad;
+		const Uint32 pix = (Uint32)color;
+		for (int dy = -rad; dy <= rad; ++dy)
+		{
+			const int rx2 = r2 - dy * dy;
+			if (rx2 < 0)
+			{
+				continue;
+			}
+			const int dx = (int)std::sqrt((double)rx2);
+			SDL_Rect line;
+			line.x = (Sint16)(x - dx);
+			line.y = (Sint16)(y + dy);
+			line.w = (Uint16)(2 * dx + 1);
+			line.h = 1;
+			SDL_FillRect(_surface, &line, pix);
+		}
+		return;
+	}
 	filledCircleColor(_surface, x, y, r, Palette::getRGBA(getPalette(), color));
 }
 
